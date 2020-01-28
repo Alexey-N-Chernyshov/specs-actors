@@ -7,7 +7,6 @@ require (
 	github.com/ipfs/go-cid v0.0.4
 	github.com/ipfs/go-hamt-ipld v0.0.14
 	github.com/libp2p/go-libp2p-core v0.3.0
-	github.com/minio/blake2b-simd v0.0.0-20160723061019-3f5f724cb5b1
 	github.com/multiformats/go-multihash v0.0.10
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.4.0
