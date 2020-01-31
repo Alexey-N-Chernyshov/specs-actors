@@ -28,7 +28,6 @@ type WithdrawBalanceParams struct {
 // Attempt to withdraw the specified amount from the balance held in escrow.
 // If less than the specified amount is available, yields the entire available balance.
 func (a *StorageMarketActor) WithdrawBalance(rt Runtime, params *WithdrawBalanceParams) *adt.EmptyValue {
-	IMPL_FINISH() // BigInt arithmetic
 	amountSlashedTotal := abi.NewTokenAmount(0)
 
 	if params.Amount.LessThan(big.Zero()) {
@@ -93,7 +92,6 @@ type PublishStorageDealsParams struct {
 
 // Publish a new set of storage deals (not yet included in a sector).
 func (a *StorageMarketActor) PublishStorageDeals(rt Runtime, params *PublishStorageDealsParams) *adt.EmptyValue {
-	IMPL_FINISH() // BigInt arithmetic
 	amountSlashedTotal := abi.NewTokenAmount(0)
 
 	// Deal message must have a From field identical to the provider of all the deals.
