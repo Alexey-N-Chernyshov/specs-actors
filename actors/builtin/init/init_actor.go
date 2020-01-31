@@ -69,7 +69,7 @@ func (e ExecReturn) UnmarshalCBOR(r io.Reader) error {
 
 func (a *InitActor) Exec(rt Runtime, execCodeID cid.Cid, constructorParams abi.MethodParams) *ExecReturn {
 	rt.ValidateImmediateCallerAcceptAny()
-	callerCodeID, ok := rt.GetActorCodeID(rt.ImmediateCaller())
+	callerCodeID, ok := rt.GetActorCodeCID(rt.ImmediateCaller())
 	AssertMsg(ok, "no code for actor at %s", rt.ImmediateCaller())
 	if !_codeIDSupportsExec(callerCodeID, execCodeID) {
 		rt.Abort(exitcode.ErrForbidden, "Caller type %v cannot create an actor of type %v", callerCodeID, execCodeID)

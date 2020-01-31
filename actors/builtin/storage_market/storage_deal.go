@@ -2,6 +2,7 @@ package storage_market
 
 import (
 	addr "github.com/filecoin-project/go-address"
+
 	abi "github.com/filecoin-project/specs-actors/actors/abi"
 	big "github.com/filecoin-project/specs-actors/actors/abi/big"
 	acrypto "github.com/filecoin-project/specs-actors/actors/crypto"
@@ -35,7 +36,7 @@ type StorageDealProposal struct {
 }
 
 func (p *StorageDealProposal) Duration() abi.ChainEpoch {
-	return (p.EndEpoch - p.StartEpoch)
+	return p.EndEpoch - p.StartEpoch
 }
 
 func (p *StorageDealProposal) TotalStorageFee() abi.TokenAmount {
@@ -52,7 +53,7 @@ func (p *StorageDealProposal) ProviderBalanceRequirement() abi.TokenAmount {
 
 // Everything in this struct will go on chain
 // Provider's signature is implicit in the message containing this structure.
-type StorageDeal struct {
+type StorageDeal struct { // TODO: drop this intermediate struct?
 	Proposal StorageDealProposal
 }
 
