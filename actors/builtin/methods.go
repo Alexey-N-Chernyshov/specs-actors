@@ -66,10 +66,8 @@ const (
 )
 
 const (
-	// Cron tick method
-	Method_StorageMarketActor_OnEpochTickEnd = MethodPlaceholder + iota
-
 	// User-callable methods
+	Method_StorageMarketActor_HandleExpiredDeals = MethodPlaceholder + iota
 	Method_StorageMarketActor_AddBalance
 	Method_StorageMarketActor_WithdrawBalance
 	Method_StorageMarketActor_PublishStorageDeals

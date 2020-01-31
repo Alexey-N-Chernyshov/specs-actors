@@ -209,7 +209,6 @@ type OnSectorTerminateParams struct {
 }
 
 func (a *StoragePowerActor) OnSectorTerminate(rt Runtime, params *OnSectorTerminateParams) *adt.EmptyValue {
-
 	rt.ValidateImmediateCallerType(builtin.StorageMinerActorCodeID)
 	minerAddr := rt.ImmediateCaller()
 	if err := a.deductClaimedPowerForSector(rt, minerAddr, params.weight); err != nil {

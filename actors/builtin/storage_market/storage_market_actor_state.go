@@ -25,6 +25,12 @@ type DealIDSet map[abi.DealID]bool // TODO: HAMT or bitfield, depending how ofte
 // TODO HAMT (probably of AMTs, i.e. a multimap).
 type DealExpirationQueue map[abi.ChainEpoch]DealIDQueue
 
+// Market mutations
+// add / rm balance
+// pub deal (always provider)
+// activate deal (miner)
+// end deal (miner terminate, expire(no activation))
+
 type StorageMarketActorState struct {
 	Deals DealsById
 
@@ -34,15 +40,12 @@ type StorageMarketActorState struct {
 	// Amount locked, indexed by actor address.
 	// Note: the amounts in this table do not affect the overall amount in escrow:
 	// only the _portion_ of the total escrow amount that is locked.
-	LockedReqTable actorutil.BalanceTableHAMT
+	LockedTable actorutil.BalanceTableHAMT
 
 	NextID abi.DealID
 
 	// Metadata cached for efficient iteration over deals.
-	DealIDsByParty             DealsByParty
-	ExpirationsPending         DealExpirationQueue
-	ExpirationsNextProcEpoch   abi.ChainEpoch
-	CurrEpochNumDealsPublished int
+	DealIDsByParty             DealsByParty  // TODO: figure out a way to drop this
 }
 
 func (st *StorageMarketActorState) UnmarshalCBOR(r io.Reader) error {
@@ -57,25 +60,22 @@ func (st *StorageMarketActorState) MarshalCBOR(w io.Writer) error {
 // Deal state operations
 ////////////////////////////////////////////////////////////////////////////////
 
-func (st *StorageMarketActorState) updatePendingDealStates(dealIDs []abi.DealID, epoch abi.ChainEpoch) (
-	amountSlashedTotal abi.TokenAmount) {
-
-	amountSlashedTotal = abi.NewTokenAmount(0)
+func (st *StorageMarketActorState) updatePendingDealStates(dealIDs []abi.DealID, epoch abi.ChainEpoch) abi.TokenAmount {
+	amountSlashedTotal := abi.NewTokenAmount(0)
 
 	for _, dealID := range dealIDs {
-		amountSlashedCurr := st.updatePendingDealState(dealID, epoch)
-		amountSlashedTotal = big.Add(amountSlashedTotal, amountSlashedCurr)
+		amountSlashedTotal = big.Add(amountSlashedTotal, st.updatePendingDealState(dealID, epoch))
 	}
 
-	return
+	return amountSlashedTotal
 }
 
-func (st *StorageMarketActorState) updatePendingDealState(dealID abi.DealID, epoch abi.ChainEpoch) (
-	amountSlashed abi.TokenAmount) {
-
+// TODO: This does waaaay too many redundant hamt reads
+func (st *StorageMarketActorState) updatePendingDealState(dealID abi.DealID, epoch abi.ChainEpoch) (amountSlashed abi.TokenAmount) {
 	amountSlashed = abi.NewTokenAmount(0)
 
-	deal, dealP := st.getOnChainDealAssert(dealID)
+	deal := st.getOnChainDealAssert(dealID)
+	dealP := deal.Deal.Proposal
 
 	everUpdated := deal.LastUpdatedEpoch != epochUndefined
 	everSlashed := deal.SlashEpoch != epochUndefined
@@ -112,7 +112,7 @@ func (st *StorageMarketActorState) updatePendingDealState(dealID abi.DealID, epo
 	}
 
 	numEpochsElapsed := elapsedEnd - elapsedStart
-	st._processDealPaymentEpochsElapsed(dealID, numEpochsElapsed)
+	st.processDealPaymentEpochsElapsed(dealID, numEpochsElapsed)
 
 	if everSlashed {
 		amountSlashed = st.processDealSlashed(dealID)
@@ -131,15 +131,18 @@ func (st *StorageMarketActorState) updatePendingDealState(dealID abi.DealID, epo
 }
 
 func (st *StorageMarketActorState) _deleteDeal(dealID abi.DealID) {
-	_, dealP := st.getOnChainDealAssert(dealID)
+	dealP := st.getOnChainDealAssert(dealID).Deal.Proposal
+
 	delete(st.Deals, dealID)
 	delete(st.DealIDsByParty[dealP.Provider], dealID)
 	delete(st.DealIDsByParty[dealP.Client], dealID)
 }
 
 // Note: only processes deal payments, not deal expiration (even if the deal has expired).
-func (st *StorageMarketActorState) _processDealPaymentEpochsElapsed(dealID abi.DealID, numEpochsElapsed abi.ChainEpoch) {
-	deal, dealP := st.getOnChainDealAssert(dealID)
+func (st *StorageMarketActorState) processDealPaymentEpochsElapsed(dealID abi.DealID, numEpochsElapsed abi.ChainEpoch) {
+	deal := st.getOnChainDealAssert(dealID)
+	dealP := deal.Deal.Proposal
+
 	Assert(deal.SectorStartEpoch != epochUndefined)
 
 	// Process deal payment for the elapsed epochs.
@@ -148,7 +151,9 @@ func (st *StorageMarketActorState) _processDealPaymentEpochsElapsed(dealID abi.D
 }
 
 func (st *StorageMarketActorState) processDealSlashed(dealID abi.DealID) (amountSlashed abi.TokenAmount) {
-	deal, dealP := st.getOnChainDealAssert(dealID)
+	deal := st.getOnChainDealAssert(dealID)
+	dealP := deal.Deal.Proposal
+
 	Assert(deal.SectorStartEpoch != epochUndefined)
 
 	slashEpoch := deal.SlashEpoch
@@ -171,7 +176,9 @@ func (st *StorageMarketActorState) processDealSlashed(dealID abi.DealID) (amount
 // Delete deal, slash a portion of provider's collateral, and unlock remaining collaterals
 // for both provider and client.
 func (st *StorageMarketActorState) processDealInitTimedOut(dealID abi.DealID) (amountSlashed abi.TokenAmount) {
-	deal, dealP := st.getOnChainDealAssert(dealID)
+	deal := st.getOnChainDealAssert(dealID)
+	dealP := deal.Deal.Proposal
+
 	Assert(deal.SectorStartEpoch == epochUndefined)
 
 	st.unlockBalance(dealP.Client, dealP.ClientBalanceRequirement())
@@ -188,7 +195,9 @@ func (st *StorageMarketActorState) processDealInitTimedOut(dealID abi.DealID) (a
 
 // Normal expiration. Delete deal and unlock collaterals for both miner and client.
 func (st *StorageMarketActorState) processDealExpired(dealID abi.DealID) {
-	deal, dealP := st.getOnChainDealAssert(dealID)
+	deal := st.getOnChainDealAssert(dealID)
+	dealP := deal.Deal.Proposal
+
 	Assert(deal.SectorStartEpoch != epochUndefined)
 
 	// Note: payment has already been completed at this point (_rtProcessDealPaymentEpochsElapsed)
@@ -210,7 +219,7 @@ func (st *StorageMarketActorState) generateStorageDealID() abi.DealID {
 
 func (st *StorageMarketActorState) addressEntryExists(address addr.Address) bool { // TODO: This is expensive, drop where not needed
 	_, foundEscrow := actorutil.BalanceTable_GetEntry(st.EscrowTable, address)
-	_, foundLocked := actorutil.BalanceTable_GetEntry(st.LockedReqTable, address)
+	_, foundLocked := actorutil.BalanceTable_GetEntry(st.LockedTable, address)
 	// Check that the tables are consistent (i.e. the address is found in one
 	// if and only if it is found in the other).
 	Assert(foundEscrow == foundLocked)
@@ -226,7 +235,7 @@ func (st *StorageMarketActorState) getTotalEscrowBalance(a addr.Address) abi.Tok
 
 func (st *StorageMarketActorState) getLockedReqBalance(a addr.Address) abi.TokenAmount {
 	Assert(st.addressEntryExists(a))
-	ret, ok := actorutil.BalanceTable_GetEntry(st.LockedReqTable, a)
+	ret, ok := actorutil.BalanceTable_GetEntry(st.LockedTable, a)
 	Assert(ok)
 	return ret
 }
@@ -241,9 +250,9 @@ func (st *StorageMarketActorState) lockBalanceMaybe(addr addr.Address, amount ab
 		return
 	}
 
-	newLockedReqTable, ok := actorutil.BalanceTable_WithAdd(st.LockedReqTable, addr, amount)
+	newLockedReqTable, ok := actorutil.BalanceTable_WithAdd(st.LockedTable, addr, amount)
 	Assert(ok)
-	st.LockedReqTable = newLockedReqTable
+	st.LockedTable = newLockedReqTable
 
 	lockBalanceOK = true
 	return
@@ -253,7 +262,7 @@ func (st *StorageMarketActorState) unlockBalance(addr addr.Address, unlockAmount
 	Assert(unlockAmountRequested.GreaterThanEqual(big.Zero()))
 	Assert(st.addressEntryExists(addr))
 
-	st.LockedReqTable = st.tableWithDeductBalanceExact(st.LockedReqTable, addr, unlockAmountRequested)
+	st.LockedTable = st.tableWithDeductBalanceExact(st.LockedTable, addr, unlockAmountRequested)
 }
 
 func (st *StorageMarketActorState) tableWithAddBalance(table actorutil.BalanceTableHAMT, toAddr addr.Address, amountToAdd abi.TokenAmount) actorutil.BalanceTableHAMT {
@@ -283,7 +292,7 @@ func (st *StorageMarketActorState) transferBalance(fromAddr addr.Address, toAddr
 	Assert(st.addressEntryExists(toAddr))
 
 	st.EscrowTable = st.tableWithDeductBalanceExact(st.EscrowTable, fromAddr, transferAmountRequested)
-	st.LockedReqTable = st.tableWithDeductBalanceExact(st.LockedReqTable, fromAddr, transferAmountRequested)
+	st.LockedTable = st.tableWithDeductBalanceExact(st.LockedTable, fromAddr, transferAmountRequested)
 	st.EscrowTable = st.tableWithAddBalance(st.EscrowTable, toAddr, transferAmountRequested)
 }
 
@@ -292,7 +301,7 @@ func (st *StorageMarketActorState) slashBalance(addr addr.Address, slashAmount a
 	Assert(slashAmount.GreaterThanEqual(big.Zero()))
 
 	st.EscrowTable = st.tableWithDeductBalanceExact(st.EscrowTable, addr, slashAmount)
-	st.LockedReqTable = st.tableWithDeductBalanceExact(st.LockedReqTable, addr, slashAmount)
+	st.LockedTable = st.tableWithDeductBalanceExact(st.LockedTable, addr, slashAmount)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -309,10 +318,10 @@ func (st *StorageMarketActorState) updatePendingDealStatesForParty(rt Runtime, a
 	// For consistency with OnEpochTickEnd, only process updates up to the end of the _previous_ epoch.
 	epoch := rt.CurrEpoch() - 1
 
-	cachedRes, ok := st.DealIDsByParty[addr]
+	deals, ok := st.DealIDsByParty[addr]
 	Assert(ok)
 	var extractedDealIDs []abi.DealID
-	for cachedDealID := range cachedRes {
+	for cachedDealID := range deals {
 		extractedDealIDs = append(extractedDealIDs, cachedDealID)
 	}
 
@@ -322,7 +331,7 @@ func (st *StorageMarketActorState) updatePendingDealStatesForParty(rt Runtime, a
 
 func (st *StorageMarketActorState) getOnChainDealOrAbort(rt Runtime, dealID abi.DealID) (deal OnChainDeal, dealP StorageDealProposal) {
 	var found bool
-	deal, dealP, found = st.getOnChainDeal(dealID)
+	deal, found = st.Deals[dealID]
 	if !found {
 		rt.Abort(exitcode.ErrNotFound, "dealID not found in Deals.")
 	}
@@ -378,19 +387,10 @@ func dealGetPaymentRemaining(deal OnChainDeal, epoch abi.ChainEpoch) abi.TokenAm
 	return big.Mul(big.NewInt(int64(durationRemaining)), dealP.StoragePricePerEpoch)
 }
 
-func (st *StorageMarketActorState) getOnChainDeal(dealID abi.DealID) (deal OnChainDeal, dealP StorageDealProposal, ok bool) {
-	deal, ok = st.Deals[dealID]
-	if ok {
-		dealP = deal.Deal.Proposal
-	}
-	return
-}
-
-func (st *StorageMarketActorState) getOnChainDealAssert(dealID abi.DealID) (deal OnChainDeal, dealP StorageDealProposal) {
-	var ok bool
-	deal, dealP, ok = st.getOnChainDeal(dealID)
+func (st *StorageMarketActorState) getOnChainDealAssert(dealID abi.DealID) OnChainDeal {
+	deal, ok := st.Deals[dealID]
 	Assert(ok)
-	return
+	return deal
 }
 
 ///// DealIDQueue /////

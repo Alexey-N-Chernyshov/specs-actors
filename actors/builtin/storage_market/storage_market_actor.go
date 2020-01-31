@@ -130,15 +130,8 @@ func (a *StorageMarketActor) PublishStorageDeals(rt Runtime, params *PublishStor
 			}
 
 			st.Deals[id] = onchainDeal
-
-			if _, found := st.ExpirationsPending[p.EndEpoch]; !found {
-				st.ExpirationsPending[p.EndEpoch] = NewDealIDQueue()
-			}
-			cep := st.ExpirationsPending[p.EndEpoch]
-			cep.Enqueue(id)
 		}
 
-		st.CurrEpochNumDealsPublished += len(params.Deals)
 		return nil
 	})
 
@@ -196,7 +189,7 @@ type GetPieceInfosForDealIDsReturn struct {
 func (a *StorageMarketActor) GetPieceInfosForDealIDs(rt Runtime, params *GetPieceInfosForDealIDsParams) *GetPieceInfosForDealIDsReturn {
 	rt.ValidateImmediateCallerType(builtin.StorageMinerActorCodeID)
 
-	ret := []abi.PieceInfo{}
+	var ret []abi.PieceInfo
 	var st StorageMarketActorState
 	rt.State().Transaction(&st, func() interface{} {
 		for _, dealID := range params.DealIDs {
@@ -241,79 +234,22 @@ func (a *StorageMarketActor) OnMinerSectorsTerminate(rt Runtime, params *OnMiner
 	return &adt.EmptyValue{}
 }
 
-func (a *StorageMarketActor) OnEpochTickEnd(rt Runtime, _ *adt.EmptyValue) *adt.EmptyValue {
-	rt.ValidateImmediateCallerIs(builtin.CronActorAddr)
-	var amountSlashedTotal abi.TokenAmount
+type HandleExpiredDealsParams struct {
+	Deals []abi.DealID // TODO: RLE
+}
+
+func (a *StorageMarketActor) HandleExpiredDeals(rt Runtime, params *HandleExpiredDealsParams) *adt.EmptyValue {
+	rt.ValidateImmediateCallerType(builtin.CallerTypesSignable...)
+	var slashed abi.TokenAmount
 	var st StorageMarketActorState
 	rt.State().Transaction(&st, func() interface{} {
-		// Some deals may never be affected by the normal calls to updatePendingDealStatesForParty
-		// (notably, if the relevant party never checks its balance).
-		// Without some cleanup mechanism, these deals may gradually accumulate and cause
-		// the StorageMarketActor state to grow without bound.
-		// To prevent this, we amortize the cost of this cleanup by processing a relatively
-		// small number of deals every epoch, independent of the calls above.
-		//
-		// More specifically, we process deals:
-		//   (a) In priority order of expiration epoch, up until the current epoch
-		//   (b) Within a given expiration epoch, in order of original publishing.
-		//
-		// We stop once we have exhausted this valid set, or when we have hit a certain target
-		// (DEAL_PROC_AMORTIZED_SCALE_FACTOR times the number of deals freshly published in the
-		// current epoch) of deals dequeued, whichever comes first.
-
-		const DEAL_PROC_AMORTIZED_SCALE_FACTOR = 2
-		numDequeuedTarget := st.CurrEpochNumDealsPublished * DEAL_PROC_AMORTIZED_SCALE_FACTOR
-
-		numDequeued := 0
-		var extractedDealIDs []abi.DealID
-
-		for {
-			if st.ExpirationsNextProcEpoch > rt.CurrEpoch() {
-				break
-			}
-
-			if numDequeued >= numDequeuedTarget {
-				break
-			}
-
-			queue, found := st.ExpirationsPending[st.ExpirationsNextProcEpoch]
-			if !found {
-				st.ExpirationsNextProcEpoch += 1
-				continue
-			}
-
-			queueDepleted := false
-			for {
-				dealID, ok := queue.Dequeue()
-				if !ok {
-					queueDepleted = true
-					break
-				}
-				numDequeued += 1
-				if _, found := st.Deals[dealID]; found {
-					// May have already processed expiration, independently, via updatePendingDealStatesForParty.
-					// If not, add it to the list to be processed.
-					extractedDealIDs = append(extractedDealIDs, dealID)
-				}
-			}
-
-			if !queueDepleted {
-				Assert(numDequeued >= numDequeuedTarget)
-				break
-			}
-
-			delete(st.ExpirationsPending, st.ExpirationsNextProcEpoch)
-			st.ExpirationsNextProcEpoch += 1
-		}
-
-		amountSlashedTotal = st.updatePendingDealStates(extractedDealIDs, rt.CurrEpoch())
-
-		// Reset for next epoch.
-		st.CurrEpochNumDealsPublished = 0
+		slashed = st.updatePendingDealStates(params.Deals, rt.CurrEpoch())
 		return nil
 	})
 
-	_, code := rt.Send(builtin.BurntFundsActorAddr, builtin.MethodSend, nil, amountSlashedTotal)
+	// TODO: award some small portion of slashed to caller as incentive
+
+	_, code := rt.Send(builtin.BurntFundsActorAddr, builtin.MethodSend, nil, slashed)
 	builtin.RequireSuccess(rt, code, "failed to burn funds")
 	return &adt.EmptyValue{}
 }
@@ -324,11 +260,9 @@ func (a *StorageMarketActor) Constructor(rt Runtime, _ *adt.EmptyValue) *adt.Emp
 	rt.State().Transaction(&st, func() interface{} {
 		st.Deals = DealsAMT_Empty()
 		st.EscrowTable = BalanceTableHAMT_Empty()
-		st.LockedReqTable = BalanceTableHAMT_Empty()
+		st.LockedTable = BalanceTableHAMT_Empty()
 		st.NextID = abi.DealID(0)
 		st.DealIDsByParty = CachedDealIDsByPartyHAMT_Empty()
-		st.ExpirationsPending = CachedExpirationsPendingHAMT_Empty()
-		st.ExpirationsNextProcEpoch = abi.ChainEpoch(0)
 		return nil
 	})
 	return &adt.EmptyValue{}
