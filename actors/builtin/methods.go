@@ -12,10 +12,12 @@ const (
 	MethodPlaceholder = abi.MethodNum(1 << 30)
 )
 
-const (
-	Method_InitActor_Exec = MethodPlaceholder + iota
-	Method_InitActor_GetActorIDForAddress
-)
+type iaMethods struct {
+	Constructor abi.MethodNum
+	Exec abi.MethodNum
+}
+
+var MethodsInit = iaMethods{MethodConstructor, 2}
 
 const (
 	Method_CronActor_EpochTick = MethodPlaceholder + iota
@@ -37,7 +39,7 @@ type msMethods struct {
 	ChangeNumApprovalsThreshold abi.MethodNum
 }
 
-var MethodsMultisig = msMethods{1, 2, 3, 4, 5, 6, 7, 8, 9}
+var MethodsMultisig = msMethods{MethodConstructor, 2, 3, 4, 5, 6, 7, 8, 9}
 
 const (
 	// Proxy cron tick method (via StoragePowerActor)
