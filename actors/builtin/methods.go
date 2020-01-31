@@ -17,9 +17,12 @@ const (
 	Method_InitActor_GetActorIDForAddress
 )
 
-const (
-	Method_CronActor_EpochTick = MethodPlaceholder + iota
-)
+type cronMethods struct {
+	Constructor abi.MethodNum
+	EpochTick   abi.MethodNum
+}
+
+var MethodsCron = cronMethods{MethodConstructor, 2}
 
 const (
 	Method_RewardActor_AwardBlockReward = MethodPlaceholder + iota
