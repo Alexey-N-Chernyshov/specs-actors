@@ -58,7 +58,7 @@ type AddBalanceParams struct {
 }
 
 func (a *StoragePowerActor) AddBalance(rt Runtime, params *AddBalanceParams) *adt.EmptyValue {
-	builtin.PledgeAddress(rt, params.miner)
+	builtin.ValidatePledgeAddress(rt, params.miner)
 	var err error
 	var st StoragePowerActorState
 	rt.State().Transaction(&st, func() interface{} {
@@ -79,7 +79,7 @@ func (a *StoragePowerActor) WithdrawBalance(rt Runtime, params *WithdrawBalanceP
 		rt.Abort(exitcode.ErrIllegalArgument, "negative withdrawal %v", params.requested)
 	}
 
-	recipientAddr := builtin.PledgeAddress(rt, params.miner)
+	recipientAddr := builtin.ValidatePledgeAddress(rt, params.miner)
 
 	var amountExtracted abi.TokenAmount
 	var st StoragePowerActorState
@@ -183,7 +183,7 @@ func (a *StoragePowerActor) DeleteMiner(rt Runtime, params *DeleteMinerParams) *
 		rt.Abort(exitcode.ErrIllegalState, "Deletion requested for miner with power still remaining")
 	}
 
-	ownerAddr, workerAddr := builtin.GetMinerCtl(rt, params.miner)
+	ownerAddr, workerAddr := builtin.GetMinerControlAddrs(rt, params.miner)
 	rt.ValidateImmediateCallerIs(ownerAddr, workerAddr)
 
 	err = a.deleteMinerActor(rt, params.miner)

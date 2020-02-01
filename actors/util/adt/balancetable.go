@@ -89,7 +89,7 @@ func (t *BalanceTable) Remove(key addr.Address) (abi.TokenAmount, error) {
 // Error type returned when an expected key is absent.
 type ErrNotFound struct {
 	Root cid.Cid
-	Key addr.Address
+	Key  addr.Address
 }
 
 func (e ErrNotFound) Error() string {

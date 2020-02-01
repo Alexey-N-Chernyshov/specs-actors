@@ -43,7 +43,7 @@ func IsStorageMiner(rt runtime.Runtime, minerAddr addr.Address) bool {
 	return codeID == StorageMinerActorCodeID
 }
 
-func GetMinerCtl(rt runtime.Runtime, minerAddr addr.Address) (ownerAddr addr.Address, workerAddr addr.Address) {
+func GetMinerControlAddrs(rt runtime.Runtime, minerAddr addr.Address) (ownerAddr addr.Address, workerAddr addr.Address) {
 	ret, code := rt.Send(minerAddr, Method_StorageMinerActor_GetOwnerAddr, nil, abi.NewTokenAmount(0))
 	RequireSuccess(rt, code, "failed fetching owner addr")
 	autil.AssertNoError(ret.Into(&ownerAddr))
@@ -57,9 +57,9 @@ func GetMinerCtl(rt runtime.Runtime, minerAddr addr.Address) (ownerAddr addr.Add
 func MarketAddress(rt runtime.Runtime, addr addr.Address) addr.Address {
 	if IsStorageMiner(rt, addr) {
 		// Storage miner actor entry; implied funds recipient is the associated owner address.
-		ownerAddr, workerAddr := GetMinerCtl(rt, addr)
+		ownerAddr, workerAddr := GetMinerControlAddrs(rt, addr)
 		rt.ValidateImmediateCallerIs(ownerAddr, workerAddr)
-		return ownerAddr // TODO: That should probably be the worker address
+		return ownerAddr
 	}
 
 	// Ordinary account-style actor entry; funds recipient is just the entry address itself.
@@ -67,15 +67,15 @@ func MarketAddress(rt runtime.Runtime, addr addr.Address) addr.Address {
 	return addr
 }
 
-func PledgeAddress(rt runtime.Runtime, addr addr.Address) addr.Address {
+func ValidatePledgeAddress(rt runtime.Runtime, addr addr.Address) addr.Address {
 	if !IsStorageMiner(rt, addr) {
 		rt.Abort(exitcode.ErrPlaceholder, "Only miner entries valid in current context")
 	}
 
 	// Storage miner actor entry; implied funds recipient is the associated owner address.
-	ownerAddr, workerAddr := GetMinerCtl(rt, addr)
+	ownerAddr, workerAddr := GetMinerControlAddrs(rt, addr)
 	rt.ValidateImmediateCallerIs(ownerAddr, workerAddr)
-	return ownerAddr // TODO: this probably just be addr, otherwise changing keys is really annoying
+	return ownerAddr
 }
 
 func RT_ConfirmFundsReceiptOrAbort_RefundRemainder(rt runtime.Runtime, fundsRequired abi.TokenAmount) {

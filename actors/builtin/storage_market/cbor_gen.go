@@ -79,7 +79,7 @@ func (t *PublishStorageDealsParams) MarshalCBOR(w io.Writer) error {
 		return err
 	}
 
-	// t.Deals ([]storage_market.StorageDeal) (slice)
+	// t.Deals ([]storage_market.StorageDealProposal) (slice)
 	if len(t.Deals) > cbg.MaxLength {
 		return xerrors.Errorf("Slice value in field t.Deals was too long")
 	}
@@ -110,7 +110,7 @@ func (t *PublishStorageDealsParams) UnmarshalCBOR(r io.Reader) error {
 		return fmt.Errorf("cbor input had wrong number of fields")
 	}
 
-	// t.Deals ([]storage_market.StorageDeal) (slice)
+	// t.Deals ([]storage_market.StorageDealProposal) (slice)
 
 	maj, extra, err = cbg.CborReadHeader(br)
 	if err != nil {
@@ -125,11 +125,11 @@ func (t *PublishStorageDealsParams) UnmarshalCBOR(r io.Reader) error {
 		return fmt.Errorf("expected cbor array")
 	}
 	if extra > 0 {
-		t.Deals = make([]StorageDeal, extra)
+		t.Deals = make([]StorageDealProposal, extra)
 	}
 	for i := 0; i < int(extra); i++ {
 
-		var v StorageDeal
+		var v StorageDealProposal
 		if err := v.UnmarshalCBOR(br); err != nil {
 			return err
 		}
@@ -742,49 +742,6 @@ func (t *StorageDealProposal) UnmarshalCBOR(r io.Reader) error {
 	return nil
 }
 
-func (t *StorageDeal) MarshalCBOR(w io.Writer) error {
-	if t == nil {
-		_, err := w.Write(cbg.CborNull)
-		return err
-	}
-	if _, err := w.Write([]byte{129}); err != nil {
-		return err
-	}
-
-	// t.Proposal (storage_market.StorageDealProposal) (struct)
-	if err := t.Proposal.MarshalCBOR(w); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (t *StorageDeal) UnmarshalCBOR(r io.Reader) error {
-	br := cbg.GetPeeker(r)
-
-	maj, extra, err := cbg.CborReadHeader(br)
-	if err != nil {
-		return err
-	}
-	if maj != cbg.MajArray {
-		return fmt.Errorf("cbor input should be of type array")
-	}
-
-	if extra != 1 {
-		return fmt.Errorf("cbor input had wrong number of fields")
-	}
-
-	// t.Proposal (storage_market.StorageDealProposal) (struct)
-
-	{
-
-		if err := t.Proposal.UnmarshalCBOR(br); err != nil {
-			return err
-		}
-
-	}
-	return nil
-}
-
 func (t *OnChainDeal) MarshalCBOR(w io.Writer) error {
 	if t == nil {
 		_, err := w.Write(cbg.CborNull)
@@ -805,8 +762,8 @@ func (t *OnChainDeal) MarshalCBOR(w io.Writer) error {
 		}
 	}
 
-	// t.Deal (storage_market.StorageDeal) (struct)
-	if err := t.Deal.MarshalCBOR(w); err != nil {
+	// t.Proposal (storage_market.StorageDealProposal) (struct)
+	if err := t.Proposal.MarshalCBOR(w); err != nil {
 		return err
 	}
 
@@ -885,11 +842,11 @@ func (t *OnChainDeal) UnmarshalCBOR(r io.Reader) error {
 
 		t.ID = abi.DealID(extraI)
 	}
-	// t.Deal (storage_market.StorageDeal) (struct)
+	// t.Proposal (storage_market.StorageDealProposal) (struct)
 
 	{
 
-		if err := t.Deal.UnmarshalCBOR(br); err != nil {
+		if err := t.Proposal.UnmarshalCBOR(br); err != nil {
 			return err
 		}
 

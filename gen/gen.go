@@ -84,7 +84,6 @@ func main() {
 		storage_market.GetPieceInfosForDealIDsReturn{},
 		// other types
 		storage_market.StorageDealProposal{},
-		storage_market.StorageDeal{},
 		storage_market.OnChainDeal{},
 	); err != nil {
 		panic(err)
